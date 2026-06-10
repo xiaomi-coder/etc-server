@@ -169,4 +169,87 @@ router.post('/payouts', async (req, res) => {
   }
 });
 
+// ── Real pool daromadi (2miners API) ─────────────────────────────────
+const POOL_API    = 'https://etc.2miners.com/api/accounts/';
+const ETC_DIVISOR = 1e9; // 2miners ETC base unit → ETC
+
+async function fetchPool(wallet) {
+  const r = await fetch(POOL_API + wallet, { signal: AbortSignal.timeout(12000) });
+  if (!r.ok) throw new Error('Pool API ' + r.status);
+  return r.json();
+}
+
+// GET /api/admin/earnings — haqiqiy pool balansi
+router.get('/earnings', async (req, res) => {
+  try {
+    const { rows } = await db.query('SELECT wallet FROM pool_config WHERE id = 1');
+    const wallet = rows[0]?.wallet;
+    if (!wallet) return res.status(400).json({ error: 'Wallet sozlanmagan' });
+
+    const d = await fetchPool(wallet);
+    const reward = i => ((d.sumrewards || []).find(s => s.inverval === i)?.reward || 0) / ETC_DIVISOR;
+
+    res.json({
+      wallet,
+      currentHashrate: (d.currentHashrate || 0) / 1e6, // MH/s
+      balance:       (d.stats?.balance  || 0) / ETC_DIVISOR,
+      immature:      (d.stats?.immature || 0) / ETC_DIVISOR,
+      reward24h:     reward(86400),
+      reward7d:      reward(604800),
+      sharesValid:   d.sharesValid   || 0,
+      sharesInvalid: d.sharesInvalid || 0,
+    });
+  } catch (err) {
+    res.status(502).json({ error: 'Pool API xatosi: ' + err.message });
+  }
+});
+
+// GET /api/admin/distribution — har userning hissasi va hisoblangan ulushi
+router.get('/distribution', async (req, res) => {
+  try {
+    // 24 soatlik hissa (hashrate yig'indisi = ish hajmi proxy)
+    const { rows: contrib } = await db.query(`
+      SELECT u.id, u.username, u.balance,
+             COALESCE(SUM(m.hashrate_mhs), 0) AS work
+      FROM users u
+      LEFT JOIN mining_stats m ON m.user_id = u.id
+        AND m.recorded_at > datetime('now', '-24 hours')
+      WHERE u.role = 'user'
+      GROUP BY u.id, u.username, u.balance
+      ORDER BY work DESC
+    `);
+    const totalWork = contrib.reduce((s, u) => s + Number(u.work), 0) || 1;
+
+    const { rows: cfg } = await db.query('SELECT wallet, fee_pct FROM pool_config WHERE id = 1');
+    const wallet = cfg[0]?.wallet;
+    const feePct = cfg[0]?.fee_pct ?? 1;
+
+    let reward24h = 0, balance = 0;
+    if (wallet) {
+      try {
+        const d = await fetchPool(wallet);
+        reward24h = ((d.sumrewards || []).find(s => s.inverval === 86400)?.reward || 0) / ETC_DIVISOR;
+        balance   = (d.stats?.balance || 0) / ETC_DIVISOR;
+      } catch (_) {}
+    }
+    const distributable = reward24h * (1 - feePct / 100);
+
+    const users = contrib.map(u => {
+      const share = Number(u.work) / totalWork;
+      return {
+        id:         u.id,
+        username:   u.username,
+        work:       Math.round(Number(u.work)),
+        share_pct:  +(share * 100).toFixed(2),
+        owed_etc:   +(distributable * share).toFixed(8),
+        balance:    u.balance,
+      };
+    });
+
+    res.json({ reward24h, balance, fee_pct: feePct, distributable, total_work: Math.round(totalWork), users });
+  } catch (err) {
+    res.status(500).json({ error: 'Server xatosi: ' + err.message });
+  }
+});
+
 module.exports = router;

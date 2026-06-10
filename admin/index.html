@@ -175,6 +175,7 @@
     <nav>
       <div class="nav-item active" data-page="dashboard"><span class="nav-icon">📊</span>Dashboard</div>
       <div class="nav-item" data-page="users"><span class="nav-icon">👥</span>Foydalanuvchilar<span class="nav-count" id="nc-users">0</span></div>
+      <div class="nav-item" data-page="earnings"><span class="nav-icon">💎</span>Daromad taqsimoti</div>
       <div class="nav-item" data-page="payouts"><span class="nav-icon">💰</span>To'lovlar</div>
       <div class="nav-item" data-page="pool"><span class="nav-icon">⚙️</span>Pool Sozlama</div>
     </nav>
@@ -217,6 +218,30 @@
           <table>
             <thead><tr><th>#</th><th>Foydalanuvchi</th><th>Email</th><th>Balans</th><th>Hashrate</th><th>Online</th><th>So'nggi faollik</th><th>Holat</th><th>Amallar</th></tr></thead>
             <tbody id="users-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Earnings / Distribution -->
+      <div id="page-earnings" class="page">
+        <div class="page-header">
+          <h2>Daromad taqsimoti</h2>
+          <button class="btn-sm" onclick="loadEarnings()">↻ Yangilash</button>
+        </div>
+        <div class="cards">
+          <div class="card"><div class="card-icon">💎</div><div class="card-val" id="e-balance">—</div><div class="card-label">Poolda yig'ilgan ETC</div></div>
+          <div class="card"><div class="card-icon">📈</div><div class="card-val" id="e-reward24">—</div><div class="card-label">24 soatlik daromad ETC</div></div>
+          <div class="card"><div class="card-icon">🏦</div><div class="card-val" id="e-fee">—</div><div class="card-label">Admin foizi %</div></div>
+          <div class="card"><div class="card-icon">🤝</div><div class="card-val" id="e-dist">—</div><div class="card-label">Taqsimlanadigan ETC</div></div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);margin:4px 2px 14px">
+          Taqsimot 24 soatlik hashrate hissasi bo'yicha hisoblanadi. Foizni «Pool Sozlama» da o'zgartirasiz.
+        </div>
+        <div class="tbl-wrap">
+          <div class="tbl-head"><span class="tbl-title">👥 Foydalanuvchilar ulushi (so'nggi 24 soat)</span></div>
+          <table>
+            <thead><tr><th>Foydalanuvchi</th><th>Hissa (ish)</th><th>Ulush %</th><th>Tegishli ETC</th><th>Balans</th><th>Amal</th></tr></thead>
+            <tbody id="dist-tbody"></tbody>
           </table>
         </div>
       </div>
@@ -400,9 +425,10 @@ document.querySelectorAll('.nav-item').forEach(el => {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     el.classList.add('active');
     document.getElementById('page-' + el.dataset.page).classList.add('active');
-    if (el.dataset.page === 'users')   loadUsers();
-    if (el.dataset.page === 'payouts') loadPayouts();
-    if (el.dataset.page === 'pool')    loadPool();
+    if (el.dataset.page === 'users')    loadUsers();
+    if (el.dataset.page === 'earnings') loadEarnings();
+    if (el.dataset.page === 'payouts')  loadPayouts();
+    if (el.dataset.page === 'pool')     loadPool();
   };
 });
 
@@ -524,6 +550,44 @@ async function loadPayouts() {
       <td><span class="pill pill-${p.status}">${p.status}</span></td>
       <td class="mono" style="font-size:11px">${fmtDate(p.created_at)}</td>
     </tr>`).join('');
+}
+
+// ── Daromad taqsimoti ─────────────────────────────────────────
+async function loadEarnings() {
+  const dist = await api('GET', '/api/admin/distribution');
+  if (dist.error) {
+    document.getElementById('dist-tbody').innerHTML = empty(6, 'Xato: ' + dist.error);
+    return;
+  }
+
+  document.getElementById('e-balance').textContent  = parseFloat(dist.balance || 0).toFixed(6);
+  document.getElementById('e-reward24').textContent = parseFloat(dist.reward24h || 0).toFixed(6);
+  document.getElementById('e-fee').textContent      = parseFloat(dist.fee_pct || 0).toFixed(1);
+  document.getElementById('e-dist').textContent     = parseFloat(dist.distributable || 0).toFixed(6);
+
+  const tbody = document.getElementById('dist-tbody');
+  const users = dist.users || [];
+  if (!users.length) { tbody.innerHTML = empty(6, 'Foydalanuvchi yo\'q'); return; }
+
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td><b style="font-size:13px">@${u.username}</b></td>
+      <td class="mono">${u.work.toLocaleString()}</td>
+      <td class="mono" style="color:var(--kas)">${u.share_pct}%</td>
+      <td class="mono" style="color:#3fb950">${u.owed_etc.toFixed(8)} ETC</td>
+      <td class="mono" style="font-size:11px;color:var(--muted)">${parseFloat(u.balance||0).toFixed(6)}</td>
+      <td>${u.owed_etc > 0
+        ? `<button class="btn-sm" onclick="payUser(${u.id}, ${u.owed_etc}, '${u.username}')">To'landi deb belgilash</button>`
+        : '<span style="color:var(--muted);font-size:11px">—</span>'}</td>
+    </tr>`).join('');
+}
+
+async function payUser(userId, amount, username) {
+  const tx = prompt(`@${username} ga ${amount.toFixed(8)} ETC to'lov.\n\nTX hash (ixtiyoriy, MetaMask dan jo'natgach):`, '');
+  if (tx === null) return; // bekor qilindi
+  const res = await api('POST', '/api/admin/payouts', { user_id: userId, amount, tx_hash: tx.trim() || null });
+  if (res.error) { alert('Xato: ' + res.error); return; }
+  loadEarnings();
 }
 
 // ── Pool ──────────────────────────────────────────────────────
