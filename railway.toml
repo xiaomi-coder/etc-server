@@ -1,0 +1,10 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "node src/migrations/run.js && node src/server.js"
+healthcheckPath = "/api/health"
+restartPolicyType = "on_failure"
+
+[environments.production.variables]
+NODE_VERSION = "22"
