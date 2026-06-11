@@ -5,6 +5,12 @@ const { requireAuth } = require('../middleware/auth');
 // GET /api/mining/pool-info
 router.get('/pool-info', requireAuth, async (req, res) => {
   try {
+    // Bloklangan akkaunt mining qila olmaydi
+    const u = await db.query('SELECT is_active FROM users WHERE id = ?', [req.user.id]);
+    if (u.rows[0] && !u.rows[0].is_active) {
+      return res.status(403).json({ error: 'Akkaunt bloklangan', blocked: true });
+    }
+
     const { rows } = await db.query('SELECT * FROM pool_config WHERE id = 1');
     const cfg = rows[0];
     if (!cfg) return res.status(503).json({ error: 'Pool sozlanmagan' });
@@ -48,11 +54,13 @@ router.post('/stats', requireAuth, async (req, res) => {
 // POST /api/mining/heartbeat
 router.post('/heartbeat', requireAuth, async (req, res) => {
   try {
-    await db.query(
-      "UPDATE users SET last_seen = datetime('now') WHERE id = ?",
-      [req.user.id]
-    );
-    res.json({ ok: true });
+    const u = await db.query('SELECT is_active FROM users WHERE id = ?', [req.user.id]);
+    const active = u.rows[0] ? !!u.rows[0].is_active : true;
+    // Faqat faol akkaunt online sanaladi
+    if (active) {
+      await db.query("UPDATE users SET last_seen = datetime('now') WHERE id = ?", [req.user.id]);
+    }
+    res.json({ ok: true, active });
   } catch (err) {
     res.status(500).json({ error: 'Server xatosi' });
   }
