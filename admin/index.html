@@ -108,6 +108,24 @@
     .card-online .card-val{color:var(--green)}
     .card-online::after{background:linear-gradient(90deg,transparent,var(--green),transparent)}
     .card-emer .card-icon{background:rgba(45,212,191,.12);border-color:rgba(45,212,191,.22)}
+    /* Kartalar ketma-ket paydo bo'lishi */
+    @keyframes cardIn{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
+    .page.active .cards .card{animation:cardIn .5s cubic-bezier(.2,.7,.3,1) both}
+    .page.active .cards .card:nth-child(1){animation-delay:.05s}
+    .page.active .cards .card:nth-child(2){animation-delay:.12s}
+    .page.active .cards .card:nth-child(3){animation-delay:.19s}
+    .page.active .cards .card:nth-child(4){animation-delay:.26s}
+    /* Jadval/grafik kartasi paydo bo'lishi */
+    @keyframes riseIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+    .page.active .tbl-wrap{animation:riseIn .55s cubic-bezier(.2,.7,.3,1) both;animation-delay:.3s}
+    .page.active .form-card{animation:riseIn .5s cubic-bezier(.2,.7,.3,1) both;animation-delay:.1s}
+    /* Animatsiyali shukur effekti kartaning ustki chizig'ida */
+    @keyframes sweep{0%{background-position:-200% 0}100%{background-position:200% 0}}
+    .card::after{background:linear-gradient(90deg,transparent,var(--kas),transparent);background-size:200% 100%;animation:sweep 4s linear infinite}
+    .card-online::after{background:linear-gradient(90deg,transparent,var(--green),transparent);background-size:200% 100%;animation:sweep 4s linear infinite}
+    .card-icon{transition:transform .25s}
+    .card:hover .card-icon{transform:scale(1.12) rotate(-4deg)}
+    @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
     /* ───── Table card ───── */
     .tbl-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;box-shadow:var(--shadow)}
@@ -446,6 +464,24 @@ function empty(cols, msg) {
   return `<tr><td colspan="${cols}" class="empty-cell">${msg}</td></tr>`;
 }
 
+// Raqamni silliq sanab ko'rsatish (0 → qiymat)
+function animateNum(el, to, decimals = 0) {
+  if (!el) return;
+  to = parseFloat(to) || 0;
+  const from = parseFloat(el.dataset.v || '0') || 0;
+  if (from === to) { el.textContent = decimals ? to.toFixed(decimals) : Math.round(to).toLocaleString(); return; }
+  el.dataset.v = to;
+  const dur = 650, t0 = performance.now();
+  function step(t) {
+    const p = Math.min((t - t0) / dur, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    const val = from + (to - from) * ease;
+    el.textContent = decimals ? val.toFixed(decimals) : Math.round(val).toLocaleString();
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
 // ── Auth ──────────────────────────────────────────────────────
 document.getElementById('login-btn').onclick = async () => {
   const email = document.getElementById('a-email').value.trim();
@@ -573,10 +609,10 @@ async function loadDashboard() {
   const onlineUsers = users.filter(u => isOnline(u.last_seen));
   const activeMiners = users.filter(u => u.last_hashrate && isOnline(u.last_seen));
 
-  document.getElementById('d-users').textContent  = dash.total_users   ?? users.length;
-  document.getElementById('d-online').textContent = onlineUsers.length;
-  document.getElementById('d-hash').textContent   = parseFloat(dash.pool_hashrate || 0).toFixed(1);
-  document.getElementById('d-paid').textContent   = parseFloat(dash.total_paid    || 0).toFixed(4);
+  animateNum(document.getElementById('d-users'),  dash.total_users ?? users.length);
+  animateNum(document.getElementById('d-online'), onlineUsers.length);
+  animateNum(document.getElementById('d-hash'),   parseFloat(dash.pool_hashrate || 0), 1);
+  animateNum(document.getElementById('d-paid'),   parseFloat(dash.total_paid || 0), 4);
   document.getElementById('oc-num').textContent   = onlineUsers.length;
   document.getElementById('nc-users').textContent = users.length;
 
@@ -669,10 +705,10 @@ async function loadPayouts() {
 async function loadEarnings() {
   const dist = await api('GET', '/api/admin/distribution');
   if (dist.error) { document.getElementById('dist-tbody').innerHTML = empty(6, 'Xato: ' + dist.error); return; }
-  document.getElementById('e-balance').textContent  = parseFloat(dist.balance || 0).toFixed(6);
-  document.getElementById('e-reward24').textContent = parseFloat(dist.reward24h || 0).toFixed(6);
-  document.getElementById('e-fee').textContent      = parseFloat(dist.fee_pct || 0).toFixed(1);
-  document.getElementById('e-dist').textContent     = parseFloat(dist.distributable || 0).toFixed(6);
+  animateNum(document.getElementById('e-balance'),  parseFloat(dist.balance || 0), 6);
+  animateNum(document.getElementById('e-reward24'), parseFloat(dist.reward24h || 0), 6);
+  animateNum(document.getElementById('e-fee'),      parseFloat(dist.fee_pct || 0), 1);
+  animateNum(document.getElementById('e-dist'),     parseFloat(dist.distributable || 0), 6);
   const tbody = document.getElementById('dist-tbody');
   const users = dist.users || [];
   if (!users.length) { tbody.innerHTML = empty(6, 'Foydalanuvchi yo\'q'); return; }
